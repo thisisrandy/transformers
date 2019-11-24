@@ -107,15 +107,20 @@ def top_k_top_p_filtering(logits, top_k=0, top_p=0.0, filter_value=-float('Inf')
     return logits
 
 
-def sample_sequence(model, length, context, num_samples=1, temperature=1, top_k=0, top_p=0.0, repetition_penalty=1.0,
+def sample_sequence(model, model_type, length, context, num_samples=1, temperature=1, top_k=0, top_p=0.0, repetition_penalty=1.0,
                     is_xlnet=False, is_xlm_mlm=False, xlm_mask_token=None, xlm_lang=None, device='cpu'):
+    use_past = model_type in ("gpt2", "ctrl", "transfo-xl")
     context = torch.tensor(context, dtype=torch.long, device=device)
     context = context.unsqueeze(0).repeat(num_samples, 1)
     generated = context
+    outputs = None
     with torch.no_grad():
         for _ in trange(length):
 
-            inputs = {'input_ids': generated}
+            if use_past and outputs is not None:
+                inputs = {"input_ids": generated[:, -1:], "past": outputs[1]}
+            else:
+                inputs = {"input_ids": generated}
             if is_xlnet: 
                 # XLNet is a direct (predict same token, not next token) and bi-directional model by default
                 # => need one additional dummy token in the input (will be masked), attention mask and target mapping (see model docstring)
@@ -231,6 +236,7 @@ def main():
                 logger.info("WARNING! You are not starting your generation from a control code so you won't get good results")
         out = sample_sequence(
             model=model,
+            model_type=args.model_type,
             context=context_tokens,
             num_samples=args.num_samples,
             length=args.length,
